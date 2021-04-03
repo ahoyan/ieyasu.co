@@ -2,6 +2,7 @@
 # -*- config:utf-8 -*-
 
 import bs4
+import datetime
 import requests
 import re
 import yaml
@@ -126,53 +127,127 @@ class Yeyasu():
                 summary[_i]['link']))
         return summary
 
+    def str_hhmm_2_int_sssss(_t='2:34'):
+        """_r = re.search(r'^[0-9]{1,}:[0-9]{1,}$', """
+
     def dev(self, command=''):
         '''
         request format:
             [YYYY/MM/][D]D,[k|[int],[int][,int]][,][# comments]
         example(core time between 09:00 and 18:00):
             2021/04/01,,+30         # 09:00 <-> 18:30(+30min) 
-            2021/04/02,-20,300,60   # 08:40(-20min) <-> 24:00(+300min) rest 2:00(+60min)
+            2021/04/02,-20,300,60   # 08:40(-20min) <-> 24:00(+300min) break 2:00(+60min)
             2021/04/03,,            # do nothing
-            4,                      # do nothing
+            4,                      # do nothing 
             2021/04/05,k            # set rest day
-
+            2021/04/06,08:40,24:00, # 08:40(-20min) <-> 24:00(+300min)
 
         _u = "https://"
         _b = bs4.BeautifulSoup(self.session.get(url=_u).text, 'html5lib')
         print(_b.prettify())
         exit()
         '''
+        _r = re.search(
+                r'^\s*((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?([0-9]{1,2}),(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?',
+                command,
+                flags=re.I,
+                )
+        '''
+        1: ((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?        # 2021/04/, 2020-12-
+        2: (([0-9]{4})[^0-9])                             # 2021/, 2023-
+        3: ([0-9]{4})                                     # [Year:Opt] 2004
+        4: ([0-9]{1,2})                                   # [Month:Opt] 0, 12
+        5: ([0-9]{1,2})                                   # [Date:Mand] 11, 3, 31
+        6: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?       # 20, -45, -300, +30, 9:15, 13:0
+        8: ([0-9]{1,2}:[0-9]{1,2})                        # [AbsStartHour:Opt] 9:15, 13:0 , 08:00
+        7: ([-+]?[0-9]+)                                  # [RelativeStartHour:Opt] 20, -45, -300, +30
+        9: (,(([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?)?   # ,20 ,-45 ,-300 ,+30 ,9:15 ,13:0 ,
+        10: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?      # 20, -45, -300, +30, 9:15, 13:0
+        11: ([0-9]{1,2}:[0-9]{1,2})                       # [AbsEndHour:Opt] 18:15, 20:0 , 23:00
+        12: ([-+]?[0-9]+)                                 # [RelativeEndHour:Opt] 20, -45, -300, +30
+        13: (,(([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?)?  # ,20 ,-45 ,-300 ,+30 ,9:15 ,13:0 ,
+        14: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?      # 20, -45, -300, +30, 9:15, 13:0
+        15: ([0-9]{1,2}:[0-9]{1,2})                       # [AbsBreakTime:Opt] 0:30, 2:20
+        16: ([-+]?[0-9]+)                                 # [RelativeBreakTime:Opt] 20, -45, -300, +30
+        '''
+        if not _r: 
+            """Unrecognized command"""
+            return None
+        # now
+        now = datetime.datetime.now()
+        # year
+        if _r.group(3):
+            yyyy = int(_r.group(3))
+        else:
+            yyyy = now.year
+        # month
+        if _r.group(4):
+            mm = int(_r.group(4))
+        else:
+            mm = now.month
+        # date
+        dd = int(_r.group(5))
+
+
+
+
+
+
+
 
 
         with open('../sample') as fh:
             self.bs = bs4.BeautifulSoup(fh.read(), 'html5lib')
-        _f = self.bs.select_one('form')
+        _f = self.bs.select_one('form[enctype="multipart/form-data"]')
         print(_f.prettify())
         # action
         action = _f["action"]
         # inputs
         form = {}
-        for tag in _f.select('[name]'):
-            print(tag.prettify())
-            # if statements didnt work....
-            if tag.select_one('input[type=hidden][name][value]'):
+        [ft.wrap(self.bs.new_tag('fake')) for ft in _f.select('[name]')]
+        for tag in _f.select('fake'):
+            '''
+            inputs habitts:
+                valueless hidden -> set("") / except name=holiday
+                unchecked checkbox -> no entry
+
+            '''
+            #print(tag.prettify())
+            if tag.select_one('input[type=checkbox]'):
+                # input[type=checkbox]
+                continue
+            elif tag.select_one('input[disabled=disabled]'):
+                # input[type=*][disabled=disabled]
+                continue
+            elif tag.select_one('input[type=hidden][name][value]'):
                 # input[hidden]
-                print("added", tag['name'], tag.prettify())
-                form[tag['name']] = tag.select('input[type=hidden][name][value]')['value']
-            elif tag.select_one('select option[selected=selected][value]'):
+                form[tag.select_one('input[type=hidden][name][value]')['name']] = (None, tag.select_one(
+                        'input[type=hidden][name][value]')['value'])
+            elif tag.select_one('select[name] option[selected=selected][value]'):
                 # select option[selected]
-                print("added", tag['name'], tag.prettify())
-                form[tag['name']] = tag.select_one('select option[selected=selected][value]')['value']
+                form[tag.select_one('select[name]')['name']] = (None, tag.select_one(
+                        'select option[selected=selected][value]')['value'])
             elif tag.select_one('input[type=text][value]'):
                 # input[text]
-                print("added", tag['name'], tag.prettify())
-                form[tag['name']] = tag.select_one('input[type=text][value]')['value']
+                form[tag.select_one('input[type=text][name][value]')['name']] = (None, tag.select_one(
+                        'input[type=text][name][value]')['value'])
             else:
                 print("ERR", tag.prettify())
-                form[tag['name']] = ''
+                form[tag.select_one('[name]')['name']] = (None, '')
+        overwriting_form = {
+                "holiday": "false",
+                "commit": "登録する",
+                "work[next_day_start]": "",
+                "work[next_day_end]": "",
+                "next_day_break_1_start]": "",
+                "next_day_break_1_end": "",
+                "next_day_break_2_start": "",
+                "next_day_break_2_end": "",
+                }
+        for i in overwriting_form.keys():
+            form[i] = (None, overwriting_form[i])
         #form[''] = 
-        print(form)
+        [ print(i, form[i]) for i in form.keys()]
 
         exit()
         action_url = self.relative_path_to_url(self.bs.form['action'])
