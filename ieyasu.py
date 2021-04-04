@@ -7,6 +7,7 @@ import requests
 import re
 import yaml
 
+
 with open('config.yaml',) as fh:
     c = yaml.load(fh.read(), Loader=yaml.FullLoader)
 
@@ -27,6 +28,9 @@ class Yeyasu():
         self.user = user
         self.password = password
         self.site_root = self.relative_path_to_url('/', url)[:-1]
+        self.standard_start_time = '09:00' if not 'sst' in c else c['sst']
+        self.standard_end_time = '18:00' if not 'set' in c else c['set']
+        self.standard_break_time = '1:00' if not 'sbt' in c else c['sbt']
 
     def relative_path_to_url(self, path='/', url=''):
         if not url:
@@ -81,10 +85,10 @@ class Yeyasu():
         yyyy = _r.group(1)
         mm =_r.group(2)
         _l = {}
-        url = self.site_root + "/works/%s-%s" % (yyyy, mm)
-        #print(url, self.site_root + "/works/%s-%s" % (yyyy, mm))
+        _url = self.site_root + "/works/%s-%s" % (yyyy, mm)
+        #print(_url, self.site_root + "/works/%s-%s" % (yyyy, mm))
 
-        self.bs = bs4.BeautifulSoup(self.session.get(url=url).text, 'html5lib')
+        self.bs = bs4.BeautifulSoup(self.session.get(url=_url).text, 'html5lib')
         #print(self.bs.prettify())
         summary = {}
         for _i in self.bs.form.select('table tr'):
@@ -127,8 +131,21 @@ class Yeyasu():
                 summary[_i]['link']))
         return summary
 
-    def str_hhmm_2_int_sssss(_t='2:34'):
-        """_r = re.search(r'^[0-9]{1,}:[0-9]{1,}$', """
+    def str_hhmm_2_int_sssss(self, _t='2:34') -> int:
+        _r = re.search(r'^([0-9]{1,}):([0-9]{1,}$)', _t)
+        if _r:
+            _h, _m = [int(x) for x in _r.groups()]
+            return int(60*_m + 60**2*_h)
+        else:
+            return _t
+
+    def int_sssss_2_str_hhmm(self, _t='12345') -> str:
+        if _t == None:
+            return _t
+        _m = int(int(_t) / 60)
+        _h = int(_m / 60)
+        _m = int(_m % 60)
+        return "%02d:%02d" % (_h, _m)
 
     def dev(self, command=''):
         '''
@@ -148,10 +165,10 @@ class Yeyasu():
         exit()
         '''
         _r = re.search(
-                r'^\s*((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?([0-9]{1,2}),(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?',
+                r'^\s*((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?([0-9]{1,2}),(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?' \
+                r'(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?(,(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?)?',
                 command,
-                flags=re.I,
-                )
+                flags=re.I,)
         '''
         1: ((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?        # 2021/04/, 2020-12-
         2: (([0-9]{4})[^0-9])                             # 2021/, 2023-
@@ -159,8 +176,8 @@ class Yeyasu():
         4: ([0-9]{1,2})                                   # [Month:Opt] 0, 12
         5: ([0-9]{1,2})                                   # [Date:Mand] 11, 3, 31
         6: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?       # 20, -45, -300, +30, 9:15, 13:0
-        8: ([0-9]{1,2}:[0-9]{1,2})                        # [AbsStartHour:Opt] 9:15, 13:0 , 08:00
-        7: ([-+]?[0-9]+)                                  # [RelativeStartHour:Opt] 20, -45, -300, +30
+        7: ([0-9]{1,2}:[0-9]{1,2})                        # [AbsStartHour:Opt] 9:15, 13:0 , 08:00
+        8: ([-+]?[0-9]+)                                  # [RelativeStartHour:Opt] 20, -45, -300, +30
         9: (,(([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?)?   # ,20 ,-45 ,-300 ,+30 ,9:15 ,13:0 ,
         10: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?      # 20, -45, -300, +30, 9:15, 13:0
         11: ([0-9]{1,2}:[0-9]{1,2})                       # [AbsEndHour:Opt] 18:15, 20:0 , 23:00
@@ -174,19 +191,53 @@ class Yeyasu():
             """Unrecognized command"""
             return None
         # now
-        now = datetime.datetime.now()
+        _now = datetime.datetime.now()
         # year
         if _r.group(3):
-            yyyy = int(_r.group(3))
+            _yyyy = int(_r.group(3))
         else:
-            yyyy = now.year
+            """ fill current year,if not specified. """
+            _yyyy = _now.year
         # month
         if _r.group(4):
-            mm = int(_r.group(4))
+            _mm = int(_r.group(4))
         else:
-            mm = now.month
-        # date
-        dd = int(_r.group(5))
+            """ fill current month, if not specified. """
+            _mm = _now.month
+        # date (mandatory)
+        _dd = int(_r.group(5))
+        # start time
+        if _r.group(7) != None:
+            _st = self.str_hhmm_2_int_sssss(_r.group(7))
+        elif _r.group(8) != None:
+            _st = int(_r.group(8)) * 60 + self.str_hhmm_2_int_sssss(self.standard_start_time)
+        else:
+            """ Not specifiied, so do not modify start-time """
+            _st = None
+        # end time
+        if _r.group(11) != None:
+            _et = self.str_hhmm_2_int_sssss(_r.group(11))
+        elif _r.group(12) != None:
+            _et = int(_r.group(12)) * 60 + self.str_hhmm_2_int_sssss(self.standard_end_time)
+        else:
+            """ Not specifiied, so do not modify end-time """
+            _et = None
+        # break time
+        if _r.group(15) != None:
+            _bt = self.str_hhmm_2_int_sssss(_r.group(15))
+        elif _r.group(16) != None:
+            _bt = int(_r.group(16)) * 60 + self.str_hhmm_2_int_sssss(self.standard_break_time)
+        else:
+            """ Not specifiied, so do not modify break-time """
+            _bt = None
+
+        print(list(_r.groups()))
+        print(_yyyy, _mm, _dd)
+        print(_st, _et, _bt)
+        print(self.int_sssss_2_str_hhmm(_st),self.int_sssss_2_str_hhmm( _et),self.int_sssss_2_str_hhmm( _bt))
+        return()
+
+
 
 
 
@@ -305,7 +356,21 @@ y = Yeyasu(
 """
 print(y.login())
 y.print_monthly_summary("2021-04")
+            2021/04/01,,+30         # 09:00 <-> 18:30(+30min)
+            2021/04/02,-20,300,60   # 08:40(-20min) <-> 24:00(+300min) break 2:00(+60min)
+            2021/04/03,,            # do nothing
+            4,                      # do nothing
+            2021/04/05,k            # set rest day
+            2021/04/06,08:40,24:00, # 08:40(-20min) <-> 24:00(+300min)
+
 """
+y.dev("2021/04/01,,+30")
+y.dev("2021/04/02,-20,300,60")
+y.dev("2021/04/03,,")
+y.dev("4,")
+y.dev("2021/04/05,k")
+y.dev("2021/04/06,08:40,24:00,")
+y.dev("04")
 y.dev("2021-04")
 exit()
 
