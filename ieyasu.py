@@ -99,7 +99,8 @@ class Yeyasu():
             if not _h:
                 _h = "UnEditable or Accepted"
             else:
-                _h = self.site_root + "/" + _h['href'].strip()
+                #_h = self.site_root + "/" + _h['href'].strip()
+                _h = self.relative_path_to_url(_h['href'].strip())
             # start
             _s = _i.select_one('td.cellTime.cellTime01.cellBreak.view_work div.item01 span')
             # end
@@ -108,7 +109,6 @@ class Yeyasu():
             _b = _i.select_one('td.cellTime.cellTime07.cellBtime.view_work')
             # total time
             _t = _i.select_one('td.cellTime.cellTime08.view_work')
-            #print(_s, _e, _b, _t)
             if not (_d and _s and _e and _b and _t):
                 # lack date or href or ....
                 continue
@@ -118,7 +118,8 @@ class Yeyasu():
             _b = _b.text.strip()
             _t = _t.text.strip()
             summary[_d] = {'link': _h, 'start': _s, 'end': _e, 'break': _b, 'total': _t,}
-        #print(summary)
+        """
+        print(summary)
         print('Year,%s,Month,%s,'  % (yyyy, mm))
         print('Date,Start,End,Breaks,Total,Link')
         for _i in sorted(summary.keys()):
@@ -129,6 +130,7 @@ class Yeyasu():
                 summary[_i]['break'],
                 summary[_i]['total'],
                 summary[_i]['link']))
+        """
         return summary
 
     def str_hhmm_2_int_sssss(self, _t='2:34') -> int:
@@ -147,22 +149,19 @@ class Yeyasu():
         _m = int(_m % 60)
         return "%02d:%02d" % (_h, _m)
 
-    def dev(self, command=''):
+    def update_attendance(self, command=''):
         '''
-        request format:
+        command format:
             [YYYY/MM/][D]D,[k|[int],[int][,int]][,][# comments]
+
         example(core time between 09:00 and 18:00):
             2021/04/01,,+30         # 09:00 <-> 18:30(+30min) 
             2021/04/02,-20,300,60   # 08:40(-20min) <-> 24:00(+300min) break 2:00(+60min)
             2021/04/03,,            # do nothing
             4,                      # do nothing 
-            2021/04/05,k            # set rest day
             2021/04/06,08:40,24:00, # 08:40(-20min) <-> 24:00(+300min)
 
-        _u = "https://"
-        _b = bs4.BeautifulSoup(self.session.get(url=_u).text, 'html5lib')
-        print(_b.prettify())
-        exit()
+            2021/04/05,k            # set rest day *** not implemented ***
         '''
         _r = re.search(
                 r'^\s*((([0-9]{4})[^0-9])([0-9]{1,2})[^0-9])?([0-9]{1,2}),(([0-9]{1,2}:[0-9]{1,2})|([-+]?[0-9]+))?' \
@@ -186,6 +185,8 @@ class Yeyasu():
         14: (([-+]?[0-9]+)|([0-9]{1,2}:[0-9]{1,2}))?      # 20, -45, -300, +30, 9:15, 13:0
         15: ([0-9]{1,2}:[0-9]{1,2})                       # [AbsBreakTime:Opt] 0:30, 2:20
         16: ([-+]?[0-9]+)                                 # [RelativeBreakTime:Opt] 20, -45, -300, +30
+
+        ## "2021/04/01,,+30" -> ['2021/04/', '2021/', '2021', '04', '01', None, None, None, ',+30', '+30', None, '+30', None, None, None, None]
         '''
         if not _r: 
             """Unrecognized command"""
@@ -230,32 +231,22 @@ class Yeyasu():
         else:
             """ Not specifiied, so do not modify break-time """
             _bt = None
+        if _st == None and _et == None and _bt == None:
+            """ command does nothing """
+            return None
 
-        print(list(_r.groups()))
-        print(_yyyy, _mm, _dd)
-        print(_st, _et, _bt)
-        print(self.int_sssss_2_str_hhmm(_st),self.int_sssss_2_str_hhmm( _et),self.int_sssss_2_str_hhmm( _bt))
-        return()
+        _s = self.print_monthly_summary("%04d/%02d" % (_yyyy, _mm))
+        _b = bs4.BeautifulSoup(
+                self.session.get(
+                    url=_s["%02d" % _dd]['link']).text,
+                'html5lib')
 
-
-
-
-
-
-
-
-
-
-
-        with open('../sample') as fh:
-            self.bs = bs4.BeautifulSoup(fh.read(), 'html5lib')
-        _f = self.bs.select_one('form[enctype="multipart/form-data"]')
-        print(_f.prettify())
+        _f = _b.select_one('form[enctype="multipart/form-data"]')
         # action
-        action = _f["action"]
+        action = self.relative_path_to_url(_f["action"])
         # inputs
-        form = {}
-        [ft.wrap(self.bs.new_tag('fake')) for ft in _f.select('[name]')]
+        _form = {}
+        [ft.wrap(_b.new_tag('fake')) for ft in _f.select('[name]')]
         for tag in _f.select('fake'):
             '''
             inputs habitts:
@@ -263,7 +254,6 @@ class Yeyasu():
                 unchecked checkbox -> no entry
 
             '''
-            #print(tag.prettify())
             if tag.select_one('input[type=checkbox]'):
                 # input[type=checkbox]
                 continue
@@ -272,19 +262,19 @@ class Yeyasu():
                 continue
             elif tag.select_one('input[type=hidden][name][value]'):
                 # input[hidden]
-                form[tag.select_one('input[type=hidden][name][value]')['name']] = (None, tag.select_one(
+                _form[tag.select_one('input[type=hidden][name][value]')['name']] = (None, tag.select_one(
                         'input[type=hidden][name][value]')['value'])
             elif tag.select_one('select[name] option[selected=selected][value]'):
                 # select option[selected]
-                form[tag.select_one('select[name]')['name']] = (None, tag.select_one(
+                _form[tag.select_one('select[name]')['name']] = (None, tag.select_one(
                         'select option[selected=selected][value]')['value'])
             elif tag.select_one('input[type=text][value]'):
                 # input[text]
-                form[tag.select_one('input[type=text][name][value]')['name']] = (None, tag.select_one(
+                _form[tag.select_one('input[type=text][name][value]')['name']] = (None, tag.select_one(
                         'input[type=text][name][value]')['value'])
             else:
-                print("ERR", tag.prettify())
-                form[tag.select_one('[name]')['name']] = (None, '')
+                #print("ERR", tag.prettify())
+                _form[tag.select_one('[name]')['name']] = (None, '')
         overwriting_form = {
                 "holiday": "false",
                 "commit": "登録する",
@@ -296,82 +286,37 @@ class Yeyasu():
                 "next_day_break_2_end": "",
                 }
         for i in overwriting_form.keys():
-            form[i] = (None, overwriting_form[i])
-        #form[''] = 
-        [ print(i, form[i]) for i in form.keys()]
+            _form[i] = (None, overwriting_form[i])
+        remove_keys = ["add_application"]
+        for i in remove_keys:
+            del _form[i]
 
-        exit()
-        action_url = self.relative_path_to_url(self.bs.form['action'])
-        # current YYYY
-        yyyy = re.search('/([0-9]{4})-', action_url).group(1)
-        # current MM
-        mm = re.search('-([0-9]{2})$', action_url).group(1)
-        print(self.bs.select_one('form').prettify())
-        #print(self.bs.form.select('table tr'))
-        hoplist = {}
-        for i in self.bs.form.select('table tr'):
-            # date
-            _d = i.select_one('td.cellDate span.date')
-            # href
-            _h = i.select_one('td.cellDate div.view_work a[href]')
-            # start
-            _s = i.select_one('td.cellTime.cellTime01.cellBreak.view_work div.item01 span')
-            # end
-            _e = i.select_one('td.cellTime.cellTime02.view_work div.item01')
-            # break time
-            _b = i.select_one('td.cellTime.cellTime07.cellBtime.view_work')
-            # total time
-            _t = i.select_one('td.cellTime.cellTime08.view_work')
-            #print(_s, _e, _b, _t)
-            if not (_d and _h and _s and _e and _b and _t):
-                # lack date or href or ....
-                continue
-            _d = _d.text.strip()
-            _h = _h['href'].strip()
-            _s = _s.text.strip()
-            _e = _e.text.strip()
-            _b = _b.text.strip()
-            _t = _t.text.strip()
-            print(_d, _s, _e, _b, _t, _h)
-        """
-        for i in self.bs.form.select('table tr'):
-            # date
-            _d = i.select_one('td.cellDate span.date')
-            if not _d:
-                continue
-            # href
-            _h = i.select_one('td.cellDate div.view_work a')
-            if not _h:
-                continue
-            print(_d.text.strip(), _h['href'].strip())
-        """
+        if _st != None:
+            _form['work[start_at_str]'] = (None, self.int_sssss_2_str_hhmm(_st))
+        if _et != None:
+            _form['work[end_at_str]'] = (None, self.int_sssss_2_str_hhmm(_et))
+        if _bt != None:
+            _form['work[break_2_start_at_str]'] = (None, self.standard_end_time)
+            _form['work[break_2_end_at_str]'] = (None, self.int_sssss_2_str_hhmm(
+                self.str_hhmm_2_int_sssss(self.standard_end_time) 
+                + _bt 
+                - self.str_hhmm_2_int_sssss(self.standard_break_time)))
+        ret = bs4.BeautifulSoup(
+                self.session.post(url=action, data=_form).text,
+                'html5lib')
+        return ()
 
 
+y = Yeyasu(url=c['url'], user=c['usr'], password=c['pas'])
+y.login()
+#y.update_attendance("2021/04/02,,300,60")
+#y.update_attendance("2021/04/05,,30,")
+#y.update_attendance("2021/04/06,-10,30,20")
+data = '''2021/04/02,,300,60
+2021/04/05,,30,
+2021/04/06,-10,30,20
+'''
+for l in data.splitlines():
+    y.update_attendance(l)
 
-
-y = Yeyasu(
-        url=c['url'],
-        user=c['usr'],
-        password=c['pas'])
-"""
-print(y.login())
-y.print_monthly_summary("2021-04")
-            2021/04/01,,+30         # 09:00 <-> 18:30(+30min)
-            2021/04/02,-20,300,60   # 08:40(-20min) <-> 24:00(+300min) break 2:00(+60min)
-            2021/04/03,,            # do nothing
-            4,                      # do nothing
-            2021/04/05,k            # set rest day
-            2021/04/06,08:40,24:00, # 08:40(-20min) <-> 24:00(+300min)
-
-"""
-y.dev("2021/04/01,,+30")
-y.dev("2021/04/02,-20,300,60")
-y.dev("2021/04/03,,")
-y.dev("4,")
-y.dev("2021/04/05,k")
-y.dev("2021/04/06,08:40,24:00,")
-y.dev("04")
-y.dev("2021-04")
 exit()
-
-#y.dev()
